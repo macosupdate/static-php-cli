@@ -10,9 +10,17 @@ use SPC\util\CustomExt;
 #[CustomExt('memcached')]
 class memcached extends Extension
 {
-    public function getUnixConfigureArg(): string
+    public function getUnixConfigureArg(bool $shared = false): string
     {
-        $rootdir = BUILD_ROOT_PATH;
-        return "--enable-memcached --with-zlib-dir={$rootdir} --with-libmemcached-dir={$rootdir} --disable-memcached-sasl --enable-memcached-json";
+        return '--enable-memcached' . ($shared ? '=shared' : '') . ' ' .
+            '--with-zlib-dir=' . BUILD_ROOT_PATH . ' ' .
+            '--with-libmemcached-dir=' . BUILD_ROOT_PATH . ' ' .
+            '--disable-memcached-sasl ' .
+            '--enable-memcached-json ' .
+            ($this->builder->getLib('zstd') ? '--with-zstd ' : '') .
+            ($this->builder->getExt('igbinary') ? '--enable-memcached-igbinary ' : '') .
+            ($this->builder->getExt('session') ? '--enable-memcached-session ' : '') .
+            ($this->builder->getExt('msgpack') ? '--enable-memcached-msgpack ' : '') .
+            '--with-system-fastlz';
     }
 }

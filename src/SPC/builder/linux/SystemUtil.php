@@ -5,12 +5,12 @@ declare(strict_types=1);
 namespace SPC\builder\linux;
 
 use SPC\builder\traits\UnixSystemUtilTrait;
-use SPC\exception\RuntimeException;
-use SPC\exception\WrongUsageException;
 
 class SystemUtil
 {
     use UnixSystemUtilTrait;
+
+    public static ?string $libc_version = null;
 
     /** @noinspection PhpMissingBreakStatementInspection */
     public static function getOSRelease(): array
@@ -22,13 +22,16 @@ class SystemUtil
         switch (true) {
             case file_exists('/etc/centos-release'):
                 $lines = file('/etc/centos-release');
+                $centos = true;
                 goto rh;
             case file_exists('/etc/redhat-release'):
                 $lines = file('/etc/redhat-release');
+                $centos = false;
                 rh:
                 foreach ($lines as $line) {
                     if (preg_match('/release\s+(\d*(\.\d+)*)/', $line, $matches)) {
-                        $ret['dist'] = 'redhat';
+                        /* @phpstan-ignore-next-line */
+                        $ret['dist'] = $centos ? 'centos' : 'redhat';
                         $ret['ver'] = $matches[1];
                     }
                 }
@@ -69,83 +72,6 @@ class SystemUtil
         }
 
         return $ncpu;
-    }
-
-    /**
-     * @throws RuntimeException
-     */
-    public static function getCCType(string $cc): string
-    {
-        return match (true) {
-            str_ends_with($cc, 'c++'), str_ends_with($cc, 'cc'), str_ends_with($cc, 'g++'), str_ends_with($cc, 'gcc') => 'gcc',
-            $cc === 'clang++', $cc === 'clang', str_starts_with($cc, 'musl-clang') => 'clang',
-            default => throw new RuntimeException("unknown cc type: {$cc}"),
-        };
-    }
-
-    /**
-     * @throws RuntimeException
-     * @throws WrongUsageException
-     * @throws WrongUsageException
-     */
-    public static function getArchCFlags(string $cc, string $arch): string
-    {
-        if (php_uname('m') === $arch) {
-            return '';
-        }
-        return match (static::getCCType($cc)) {
-            'clang' => match ($arch) {
-                'x86_64' => '--target=x86_64-unknown-linux',
-                'arm64', 'aarch64' => '--target=arm64-unknown-linux',
-                default => throw new WrongUsageException('unsupported arch: ' . $arch),
-            },
-            'gcc' => '',
-            default => throw new WrongUsageException('cc compiler ' . $cc . ' is not supported'),
-        };
-    }
-
-    /**
-     * @throws RuntimeException
-     */
-    public static function getTuneCFlags(string $arch): array
-    {
-        return match ($arch) {
-            'x86_64', 'arm64', 'aarch64' => [],
-            default => throw new RuntimeException('unsupported arch: ' . $arch),
-        };
-    }
-
-    public static function checkCCFlags(array $flags, string $cc): array
-    {
-        return array_filter($flags, fn ($flag) => static::checkCCFlag($flag, $cc));
-    }
-
-    public static function checkCCFlag(string $flag, string $cc): string
-    {
-        [$ret] = shell()->execWithResult("echo | {$cc} -E -x c - {$flag} 2>/dev/null");
-        if ($ret != 0) {
-            return '';
-        }
-        return $flag;
-    }
-
-    /**
-     * @throws RuntimeException
-     * @noinspection PhpUnused
-     */
-    public static function getCrossCompilePrefix(string $cc, string $arch): string
-    {
-        return match (static::getCCType($cc)) {
-            // guessing clang toolchains
-            'clang' => match ($arch) {
-                'x86_64' => 'x86_64-linux-gnu-',
-                'arm64', 'aarch64' => 'aarch64-linux-gnu-',
-                default => throw new RuntimeException('unsupported arch: ' . $arch),
-            },
-            // remove gcc postfix
-            'gcc' => str_replace('-cc', '', str_replace('-gcc', '', $cc)) . '-',
-            default => throw new RuntimeException('unsupported cc'),
-        };
     }
 
     public static function findStaticLib(string $name): ?array
@@ -218,10 +144,55 @@ class SystemUtil
             'debian', 'ubuntu', 'Deepin',
             // rhel-like
             'redhat',
+            // centos
+            'centos',
             // alpine
             'alpine',
             // arch
             'arch', 'manjaro',
         ];
+    }
+
+    /**
+     * Get libc version string from ldd
+     */
+    public static function getLibcVersionIfExists(?string $libc = null): ?string
+    {
+        if (self::$libc_version !== null) {
+            return self::$libc_version;
+        }
+        if ($libc === 'glibc') {
+            $result = shell()->execWithResult('ldd --version', false);
+            if ($result[0] !== 0) {
+                return null;
+            }
+            // get first line
+            $first_line = $result[1][0];
+            // match ldd version: "ldd (some useless text) 2.17" match 2.17
+            $pattern = '/ldd\s+\(.*?\)\s+(\d+\.\d+)/';
+            if (preg_match($pattern, $first_line, $matches)) {
+                self::$libc_version = $matches[1];
+                return self::$libc_version;
+            }
+            return null;
+        }
+        if ($libc === 'musl') {
+            if (self::isMuslDist()) {
+                $result = shell()->execWithResult('ldd 2>&1', false);
+            } elseif (is_file('/usr/local/musl/lib/libc.so')) {
+                $result = shell()->execWithResult('/usr/local/musl/lib/libc.so 2>&1', false);
+            } else {
+                $arch = php_uname('m');
+                $result = shell()->execWithResult("/lib/ld-musl-{$arch}.so.1 2>&1", false);
+            }
+            // Match Version * line
+            // match ldd version: "Version 1.2.3" match 1.2.3
+            $pattern = '/Version\s+(\d+\.\d+\.\d+)/';
+            if (preg_match($pattern, $result[1][1] ?? '', $matches)) {
+                self::$libc_version = $matches[1];
+                return self::$libc_version;
+            }
+        }
+        return null;
     }
 }

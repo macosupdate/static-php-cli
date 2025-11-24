@@ -4,61 +4,54 @@ declare(strict_types=1);
 
 namespace SPC\builder\unix\library;
 
-use SPC\builder\linux\library\LinuxLibraryBase;
-use SPC\builder\macos\library\MacOSLibraryBase;
-use SPC\exception\FileSystemException;
-use SPC\exception\RuntimeException;
 use SPC\store\FileSystem;
+use SPC\util\executor\UnixAutoconfExecutor;
+use SPC\util\SPCTarget;
 
 trait imagemagick
 {
-    /**
-     * @throws RuntimeException
-     * @throws FileSystemException
-     */
     protected function build(): void
     {
-        // TODO: imagemagick build with bzip2 failed with bugs, we need to fix it in the future
-        $extra = '--without-jxl --without-x --enable-openmp --without-bzlib ';
-        $required_libs = '';
-        $optional_libs = [
-            'libzip' => 'zip',
-            'libjpeg' => 'jpeg',
-            'libpng' => 'png',
-            'libwebp' => 'webp',
-            'libxml2' => 'xml',
-            'zlib' => 'zlib',
-            'xz' => 'lzma',
-            'zstd' => 'zstd',
-            'freetype' => 'freetype',
-        ];
-        foreach ($optional_libs as $lib => $option) {
-            $extra .= $this->builder->getLib($lib) ? "--with-{$option} " : "--without-{$option} ";
-            if ($this->builder->getLib($lib) instanceof LinuxLibraryBase) {
-                $required_libs .= ' ' . $this->builder->getLib($lib)->getStaticLibFiles();
-            }
+        $original_ldflags = $this->builder->arch_ld_flags;
+        if (str_contains($this->builder->arch_ld_flags, '-Wl,--as-needed')) {
+            $this->builder->arch_ld_flags = str_replace('-Wl,--as-needed', '', $original_ldflags);
         }
 
-        $ldflags = $this instanceof LinuxLibraryBase ? ('-static') : '';
+        $ac = UnixAutoconfExecutor::create($this)
+            ->optionalLib('libzip', ...ac_with_args('zip'))
+            ->optionalLib('libjpeg', ...ac_with_args('jpeg'))
+            ->optionalLib('libpng', ...ac_with_args('png'))
+            ->optionalLib('libwebp', ...ac_with_args('webp'))
+            ->optionalLib('libxml2', ...ac_with_args('xml'))
+            ->optionalLib('libheif', ...ac_with_args('heic'))
+            ->optionalLib('zlib', ...ac_with_args('zlib'))
+            ->optionalLib('xz', ...ac_with_args('lzma'))
+            ->optionalLib('zstd', ...ac_with_args('zstd'))
+            ->optionalLib('freetype', ...ac_with_args('freetype'))
+            ->optionalLib('bzip2', ...ac_with_args('bzlib'))
+            ->optionalLib('libjxl', ...ac_with_args('jxl'))
+            ->optionalLib('jbig', ...ac_with_args('jbig'))
+            ->addConfigureArgs(
+                '--disable-openmp',
+                '--without-x',
+            );
 
-        // libxml iconv patch
-        $required_libs .= $this instanceof MacOSLibraryBase ? ('-liconv') : '';
-        shell()->cd($this->source_dir)
-            ->setEnv([
-                'CFLAGS' => $this->getLibExtraCFlags(),
-                'LDFLAGS' => $this->getLibExtraLdFlags() ?: $ldflags,
-                'LIBS' => $this->getLibExtraLibs() ?: $required_libs,
-                'PKG_CONFIG' => '$PKG_CONFIG --static',
-            ])
-            ->execWithEnv(
-                './configure ' .
-                '--enable-static --disable-shared ' .
-                $extra .
-                '--prefix='
-            )
-            ->exec('make clean')
-            ->exec("make -j{$this->builder->concurrency}")
-            ->exec('make install DESTDIR=' . BUILD_ROOT_PATH);
+        // special: linux-static target needs `-static`
+        $ldflags = SPCTarget::isStatic() ? '-static -ldl' : '-ldl';
+
+        // special: macOS needs -iconv
+        $libs = SPCTarget::getTargetOS() === 'Darwin' ? '-liconv' : '';
+
+        $ac->appendEnv([
+            'LDFLAGS' => $ldflags,
+            'LIBS' => $libs,
+            'PKG_CONFIG' => '$PKG_CONFIG --static',
+        ]);
+
+        $ac->configure()->make();
+
+        $this->builder->arch_ld_flags = $original_ldflags;
+
         $filelist = [
             'ImageMagick.pc',
             'ImageMagick-7.Q16HDRI.pc',
@@ -77,5 +70,6 @@ trait imagemagick
                 'includearchdir=${prefix}/include/ImageMagick-7'
             );
         }
+        $this->patchLaDependencyPrefix();
     }
 }

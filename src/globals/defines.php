@@ -2,31 +2,15 @@
 
 declare(strict_types=1);
 
-use SPC\store\FileSystem;
 use ZM\Logger\ConsoleLogger;
 
 define('WORKING_DIR', getcwd());
 define('ROOT_DIR', dirname(__DIR__, 2));
+putenv('WORKING_DIR=' . WORKING_DIR);
+putenv('ROOT_DIR=' . ROOT_DIR);
 
 // CLI start time
 define('START_TIME', microtime(true));
-
-define('BUILD_ROOT_PATH', FileSystem::convertPath(is_string($a = getenv('BUILD_ROOT_PATH')) ? $a : (WORKING_DIR . '/buildroot')));
-define('SOURCE_PATH', FileSystem::convertPath(is_string($a = getenv('SOURCE_PATH')) ? $a : (WORKING_DIR . '/source')));
-define('DOWNLOAD_PATH', FileSystem::convertPath(is_string($a = getenv('DOWNLOAD_PATH')) ? $a : (WORKING_DIR . '/downloads')));
-define('PKG_ROOT_PATH', FileSystem::convertPath(is_string($a = getenv('PKG_ROOT_PATH')) ? $a : (WORKING_DIR . '/pkgroot')));
-define('BUILD_BIN_PATH', FileSystem::convertPath(is_string($a = getenv('INSTALL_BIN_PATH')) ? $a : (BUILD_ROOT_PATH . '/bin')));
-define('BUILD_LIB_PATH', FileSystem::convertPath(is_string($a = getenv('INSTALL_LIB_PATH')) ? $a : (BUILD_ROOT_PATH . '/lib')));
-define('BUILD_INCLUDE_PATH', FileSystem::convertPath(is_string($a = getenv('INSTALL_INCLUDE_PATH')) ? $a : (BUILD_ROOT_PATH . '/include')));
-define('SEPARATED_PATH', [
-    '/' . pathinfo(BUILD_LIB_PATH)['basename'], // lib
-    '/' . pathinfo(BUILD_INCLUDE_PATH)['basename'], // include
-    BUILD_ROOT_PATH,
-]);
-
-if (PHP_OS_FAMILY === 'Windows') {
-    define('PHP_SDK_PATH', is_string($a = getenv('PHP_SDK_PATH')) ? $a : (WORKING_DIR . DIRECTORY_SEPARATOR . 'php-sdk-binary-tools'));
-}
 
 // for windows, prevent calling Invoke-WebRequest and wsl command
 const SPC_CURL_EXEC = PHP_OS_FAMILY === 'Windows' ? 'curl.exe' : 'curl';
@@ -56,9 +40,10 @@ const SPC_EXTENSION_ALIAS = [
     'zendopcache' => 'opcache',
 ];
 
-// spc lock type
-const SPC_LOCK_SOURCE = 1;      // lock source
-const SPC_LOCK_PRE_BUILT = 2;   // lock pre-built
+// spc download lock type
+const SPC_DOWNLOAD_SOURCE = 1;      // lock source
+const SPC_DOWNLOAD_PRE_BUILT = 2;   // lock pre-built
+const SPC_DOWNLOAD_PACKAGE = 3; // lock as package
 
 // file replace strategy
 const REPLACE_FILE_STR = 1;
@@ -77,7 +62,9 @@ const BUILD_TARGET_CLI = 1;     // build cli
 const BUILD_TARGET_MICRO = 2;   // build micro
 const BUILD_TARGET_FPM = 4;     // build fpm
 const BUILD_TARGET_EMBED = 8;   // build embed
-const BUILD_TARGET_ALL = 15;    // build all
+const BUILD_TARGET_FRANKENPHP = 16;   // build frankenphp
+const BUILD_TARGET_CGI = 32;   // build cgi
+const BUILD_TARGET_ALL = BUILD_TARGET_CLI | BUILD_TARGET_MICRO | BUILD_TARGET_FPM | BUILD_TARGET_EMBED | BUILD_TARGET_FRANKENPHP | BUILD_TARGET_CGI;    // build all
 
 // doctor error fix policy
 const FIX_POLICY_DIE = 1;       // die directly
@@ -99,4 +86,15 @@ const AUTOCONF_CPPFLAGS = 4;
 const AUTOCONF_LDFLAGS = 8;
 const AUTOCONF_ALL = 15;
 
+// spc download source type
+const SPC_SOURCE_ARCHIVE = 'archive'; // download as archive
+const SPC_SOURCE_GIT = 'git'; // download as git repository
+const SPC_SOURCE_LOCAL = 'local'; // download as local directory
+
+// spc logs dir
+const SPC_LOGS_DIR = WORKING_DIR . DIRECTORY_SEPARATOR . 'log';
+const SPC_OUTPUT_LOG = SPC_LOGS_DIR . DIRECTORY_SEPARATOR . 'spc.output.log';
+const SPC_SHELL_LOG = SPC_LOGS_DIR . DIRECTORY_SEPARATOR . 'spc.shell.log';
+
 ConsoleLogger::$date_format = 'H:i:s';
+ConsoleLogger::$format = '[%date%] [%level_short%] %body%';

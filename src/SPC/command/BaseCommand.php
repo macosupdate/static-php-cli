@@ -9,7 +9,9 @@ use Laravel\Prompts\Prompt;
 use Psr\Log\LogLevel;
 use SPC\ConsoleApplication;
 use SPC\exception\ExceptionHandler;
-use SPC\exception\WrongUsageException;
+use SPC\exception\SPCException;
+use SPC\util\AttributeMapper;
+use SPC\util\GlobalEnvManager;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Helper\QuestionHelper;
 use Symfony\Component\Console\Input\InputInterface;
@@ -30,6 +32,7 @@ abstract class BaseCommand extends Command
         parent::__construct($name);
         $this->addOption('debug', null, null, 'Enable debug mode');
         $this->addOption('no-motd', null, null, 'Disable motd');
+        $this->addOption('preserve-log', null, null, 'Preserve log files, do not delete them on initialized');
     }
 
     public function initialize(InputInterface $input, OutputInterface $output): void
@@ -45,7 +48,6 @@ abstract class BaseCommand extends Command
                 E_USER_ERROR => ['PHP Error: ', 'error'],
                 E_USER_WARNING => ['PHP Warning: ', 'warning'],
                 E_USER_NOTICE => ['PHP Notice: ', 'notice'],
-                E_STRICT => ['PHP Strict: ', 'notice'],
                 E_RECOVERABLE_ERROR => ['PHP Recoverable Error: ', 'error'],
                 E_DEPRECATED => ['PHP Deprecated: ', 'notice'],
                 E_USER_DEPRECATED => ['PHP User Deprecated: ', 'notice'],
@@ -55,22 +57,19 @@ abstract class BaseCommand extends Command
             logger()->{$level_tip[1]}($error);
             // 如果 return false 则错误会继续递交给 PHP 标准错误处理
             return true;
-        }, E_ALL | E_STRICT);
+        });
         $version = ConsoleApplication::VERSION;
         if (!$this->no_motd) {
-            echo "     _        _   _                 _           
- ___| |_ __ _| |_(_) ___      _ __ | |__  _ __  
-/ __| __/ _` | __| |/ __|____| '_ \\| '_ \\| '_ \\ 
+            echo "     _        _   _                 _
+ ___| |_ __ _| |_(_) ___      _ __ | |__  _ __
+/ __| __/ _` | __| |/ __|____| '_ \\| '_ \\| '_ \\
 \\__ \\ || (_| | |_| | (_|_____| |_) | | | | |_) |
 |___/\\__\\__,_|\\__|_|\\___|    | .__/|_| |_| .__/   v{$version}
-                             |_|         |_|    
+                             |_|         |_|
 ";
         }
     }
 
-    /**
-     * @throws WrongUsageException
-     */
     abstract public function handle(): int;
 
     protected function execute(InputInterface $input, OutputInterface $output): int
@@ -78,46 +77,37 @@ abstract class BaseCommand extends Command
         $this->input = $input;
         $this->output = $output;
 
-        global $ob_logger;
-        if ($input->getOption('debug')) {
-            $ob_logger = new ConsoleLogger(LogLevel::DEBUG, decorated: !$input->getOption('no-ansi'));
-            define('DEBUG_MODE', true);
-        } else {
-            $ob_logger = new ConsoleLogger(decorated: !$input->getOption('no-ansi'));
+        // init log
+        $this->initLogFiles();
+
+        // init logger
+        $this->initConsoleLogger();
+
+        // load attribute maps
+        AttributeMapper::init();
+
+        // init windows fallback
+        $this->initWindowsPromptFallback($input, $output);
+
+        // init GlobalEnv
+        if (!$this instanceof BuildCommand) {
+            GlobalEnvManager::init();
+            f_putenv('SPC_SKIP_TOOLCHAIN_CHECK=yes');
         }
 
-        // windows fallback
-        Prompt::fallbackWhen(PHP_OS_FAMILY === 'Windows');
-        ConfirmPrompt::fallbackUsing(function (ConfirmPrompt $prompt) use ($input, $output) {
-            $helper = new QuestionHelper();
-            $case = $prompt->default ? ' [Y/n] ' : ' [y/N] ';
-            $question = new ConfirmationQuestion($prompt->label . $case, $prompt->default);
-            return $helper->ask($input, $output, $question);
-        });
-        if ($this->shouldExecute()) {
-            try {
-                // show raw argv list for logger()->debug
-                logger()->debug('argv: ' . implode(' ', $_SERVER['argv']));
-                return $this->handle();
-            } catch (WrongUsageException $e) {
-                $msg = explode("\n", $e->getMessage());
-                foreach ($msg as $v) {
-                    logger()->error($v);
-                }
-                return static::FAILURE;
-            } catch (\Throwable $e) {
-                if ($this->getOption('debug')) {
-                    ExceptionHandler::getInstance()->handle($e);
-                } else {
-                    $msg = explode("\n", $e->getMessage());
-                    foreach ($msg as $v) {
-                        logger()->error($v);
-                    }
-                }
-                return static::FAILURE;
-            }
+        try {
+            // show raw argv list for logger()->debug
+            logger()->debug('argv: ' . implode(' ', $_SERVER['argv']));
+            return $this->handle();
+        } /* @noinspection PhpRedundantCatchClauseInspection */ catch (SPCException $e) {
+            // Handle SPCException and log it
+            ExceptionHandler::handleSPCException($e);
+            return static::FAILURE;
+        } catch (\Throwable $e) {
+            // Handle any other exceptions
+            ExceptionHandler::handleDefaultException($e);
+            return static::FAILURE;
         }
-        return static::SUCCESS;
     }
 
     protected function getOption(string $name): mixed
@@ -128,11 +118,6 @@ abstract class BaseCommand extends Command
     protected function getArgument(string $name): mixed
     {
         return $this->input->getArgument($name);
-    }
-
-    protected function shouldExecute(): bool
-    {
-        return true;
     }
 
     protected function logWithResult(bool $result, string $success_msg, string $fail_msg): int
@@ -148,27 +133,81 @@ abstract class BaseCommand extends Command
     /**
      * Parse extension list from string, replace alias and filter internal extensions.
      *
-     * @param string $ext_list Extension string list, e.g. "mbstring,posix,sockets"
+     * @param array|string $ext_list Extension string list, e.g. "mbstring,posix,sockets" or array
      */
-    protected function parseExtensionList(string $ext_list): array
+    protected function parseExtensionList(array|string $ext_list): array
     {
         // replace alias
         $ls = array_map(function ($x) {
             $lower = strtolower(trim($x));
             if (isset(SPC_EXTENSION_ALIAS[$lower])) {
-                logger()->notice("Extension [{$lower}] is an alias of [" . SPC_EXTENSION_ALIAS[$lower] . '], it will be replaced.');
+                logger()->debug("Extension [{$lower}] is an alias of [" . SPC_EXTENSION_ALIAS[$lower] . '], it will be replaced.');
                 return SPC_EXTENSION_ALIAS[$lower];
             }
             return $lower;
-        }, explode(',', $ext_list));
+        }, is_array($ext_list) ? $ext_list : array_filter(explode(',', $ext_list)));
 
         // filter internals
         return array_values(array_filter($ls, function ($x) {
             if (in_array($x, SPC_INTERNAL_EXTENSIONS)) {
-                logger()->warning("Extension [{$x}] is an builtin extension, it will be ignored.");
+                logger()->debug("Extension [{$x}] is an builtin extension, it will be ignored.");
                 return false;
             }
             return true;
         }));
+    }
+
+    /**
+     * Initialize spc log files.
+     */
+    private function initLogFiles(): void
+    {
+        $log_dir = SPC_LOGS_DIR;
+        if (!file_exists($log_dir)) {
+            mkdir($log_dir, 0755, true);
+        } elseif (!$this->getOption('preserve-log')) {
+            // Clean up old log files
+            $files = glob($log_dir . '/*.log');
+            foreach ($files as $file) {
+                if (is_file($file)) {
+                    unlink($file);
+                }
+            }
+        }
+    }
+
+    /**
+     * Initialize console logger.
+     */
+    private function initConsoleLogger(): void
+    {
+        global $ob_logger;
+        if ($this->input->getOption('debug') || $this->output->getVerbosity() > OutputInterface::VERBOSITY_NORMAL) {
+            $ob_logger = new ConsoleLogger(LogLevel::DEBUG, decorated: !$this->input->getOption('no-ansi'));
+            define('DEBUG_MODE', true);
+        } else {
+            $ob_logger = new ConsoleLogger(decorated: !$this->input->getOption('no-ansi'));
+        }
+        $log_file_fd = fopen(SPC_OUTPUT_LOG, 'a');
+        $ob_logger->addLogCallback(function ($level, $output) use ($log_file_fd) {
+            if ($log_file_fd) {
+                fwrite($log_file_fd, strip_ansi_colors($output) . "\n");
+            }
+            return true;
+        });
+    }
+
+    /**
+     * Initialize Windows prompt fallback for laravel-prompts.
+     */
+    private function initWindowsPromptFallback(InputInterface $input, OutputInterface $output): void
+    {
+        Prompt::fallbackWhen(PHP_OS_FAMILY === 'Windows');
+        ConfirmPrompt::fallbackUsing(function (ConfirmPrompt $prompt) use ($input, $output) {
+            $helper = new QuestionHelper();
+            $case = $prompt->default ? ' [Y/n] ' : ' [y/N] ';
+            $question = new ConfirmationQuestion($prompt->label . $case, $prompt->default);
+            return $helper->ask($input, $output, $question);
+        });
     }
 }

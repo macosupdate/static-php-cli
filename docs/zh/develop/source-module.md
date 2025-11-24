@@ -30,6 +30,7 @@ static-php-cli 的下载资源模块是一个主要的功能，它包含了所�
 这里最主要的字段是 `type`，目前它支持的类型有：
 
 - `url`: 直接使用 URL 下载，例如：`https://download.libsodium.org/libsodium/releases/libsodium-1.0.18.tar.gz`。
+- `pie`: 使用 PIE（PHP Installer for Extensions）标准从 Packagist 下载 PHP 扩展。
 - `ghrel`: 使用 GitHub Release API 下载，即从 GitHub 项目发布的最新版本中上传的附件下载。
 - `ghtar`: 使用 GitHub Release API 下载，与 `ghrel` 不同的是，`ghtar` 是从项目的最新 Release 中找 `source code (tar.gz)` 下载的。
 - `ghtagtar`: 使用 GitHub Release API 下载，与 `ghtar` 相比，`ghtagtar` 可以从 `tags` 列表找最新的，并下载 `tar.gz` 格式的源码（因为有些项目只使用了 `tag` 发布版本）。
@@ -76,6 +77,36 @@ url 类型的资源指的是从 URL 直接下载文件。
   }
 }
 ```
+
+## 下载类型 - pie
+
+PIE（PHP Installer for Extensions）类型的资源是从 Packagist 下载遵循 PIE 标准的 PHP 扩展。
+该方法会自动从 Packagist 仓库获取扩展信息，并下载相应的分发文件。
+
+包含的参数有：
+
+- `repo`: Packagist 的 vendor/package 名称，如 `vendor/package-name`
+
+例子（使用 PIE 从 Packagist 下载 PHP 扩展）：
+
+```json
+{
+  "ext-example": {
+    "type": "pie",
+    "repo": "vendor/example-extension",
+    "path": "php-src/ext/example",
+    "license": {
+      "type": "file",
+      "path": "LICENSE"
+    }
+  }
+}
+```
+
+::: tip
+PIE 下载类型会自动从 Packagist 元数据中检测扩展信息，包括下载 URL、版本和分发类型。
+扩展必须在其 Packagist 包定义中标记为 `type: php-ext` 或包含 `php-ext` 元数据。
+:::
 
 ## 下载类型 - ghrel
 
@@ -294,6 +325,26 @@ pkg.json 存放的是非源码类型的文件资源，例如 musl-toolchain、UP
         "path": "LICENSE-extra"
       }
     ]
+  }
+}
+```
+
+当一个开源项目的许可证在不同版本间使用不同的文件，`path` 参数可以使用数组将可能的许可证文件列出：
+
+```json
+{
+  "redis": {
+    "type": "git",
+    "path": "php-src/ext/redis",
+    "rev": "release/6.0.2",
+    "url": "https://github.com/phpredis/phpredis",
+    "license": {
+      "type": "file",
+      "path": [
+        "LICENSE",
+        "COPYING"
+      ]
+    }
   }
 }
 ```

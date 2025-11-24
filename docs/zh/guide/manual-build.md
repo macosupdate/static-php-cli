@@ -1,3 +1,7 @@
+---
+outline: 'deep'
+---
+
 # 本地构建（Linux、macOS、FreeBSD）
 
 本章节为 Linux、macOS、FreeBSD 的构建过程，如果你要在 Windows 上构建，请到 [在 Windows 上构建](./build-on-windows)。
@@ -11,15 +15,15 @@
 ```bash
 # Download from self-hosted nightly builds (sync with main branch)
 # For Linux x86_64
-curl -o spc https://dl.static-php.dev/static-php-cli/spc-bin/nightly/spc-linux-x86_64
+curl -fsSL -o spc https://dl.static-php.dev/static-php-cli/spc-bin/nightly/spc-linux-x86_64
 # For Linux aarch64
-curl -o spc https://dl.static-php.dev/static-php-cli/spc-bin/nightly/spc-linux-aarch64
+curl -fsSL -o spc https://dl.static-php.dev/static-php-cli/spc-bin/nightly/spc-linux-aarch64
 # macOS x86_64 (Intel)
-curl -o spc https://dl.static-php.dev/static-php-cli/spc-bin/nightly/spc-macos-x86_64
+curl -fsSL -o spc https://dl.static-php.dev/static-php-cli/spc-bin/nightly/spc-macos-x86_64
 # macOS aarch64 (Apple)
-curl -o spc https://dl.static-php.dev/static-php-cli/spc-bin/nightly/spc-macos-aarch64
+curl -fsSL -o spc https://dl.static-php.dev/static-php-cli/spc-bin/nightly/spc-macos-aarch64
 # Windows (x86_64, win10 build 17063 or later)
-curl.exe -o spc.exe https://dl.static-php.dev/static-php-cli/spc-bin/nightly/spc-windows-x64.exe
+curl.exe -fsSL -o spc.exe https://dl.static-php.dev/static-php-cli/spc-bin/nightly/spc-windows-x64.exe
 
 # Add execute perm (Linux and macOS only)
 chmod +x ./spc
@@ -50,28 +54,28 @@ cd static-php-cli
 composer update
 ```
 
-### 使用系统 PHP 环境
+### 使用预编译静态 PHP 二进制运行 static-php-cli
 
-下面是系统安装 PHP、Composer 的一些示例命令。具体安装方式建议自行搜索或询问 AI 搜索引擎获取答案，这里不多赘述。
+如果你不想使用 Docker、在系统内安装 PHP，可以直接下载本项目自身编译好的 php 二进制 cli 程序。使用流程如下：
 
-```bash
-# [macOS], 需要先安装 Homebrew. See https://brew.sh/
-# Remember change your composer executable path. For M1/M2 Chip mac, "/opt/homebrew/bin/", for Intel mac, "/usr/local/bin/". Or add it to your own path.
-brew install php wget
-wget https://getcomposer.org/download/latest-stable/composer.phar -O /path/to/your/bin/composer && chmod +x /path/to/your/bin/composer
-
-# [Debian], you need to make sure your php version >= 8.1 and composer >= 2.0
-sudo apt install php-cli composer php-tokenizer
-
-# [Alpine]
-apk add bash file wget xz php81 php81-common php81-pcntl php81-tokenizer php81-phar php81-posix php81-xml composer
-```
+使用命令部署环境，此脚本会从 [自托管的服务器](https://dl.static-php.dev/static-php-cli/) 下载一个当前操作系统的 php-cli 包，
+并从 [getcomposer](https://getcomposer.org/download/latest-stable/composer.phar) 或 [Aliyun（镜像）](https://mirrors.aliyun.com/composer/composer.phar) 下载 Composer。
 
 ::: tip
-目前 Ubuntu 部分版本的 apt 安装的 php 版本较旧，故不提供安装命令。如有需要，建议先添加 ppa 等软件源后，安装最新版的 PHP 以及 tokenizer、xml、phar 扩展。
-
-较老版本的 Debian 默认安装的可能为旧版本（<= 7.4）版本的 PHP，建议先升级 Debian。
+使用预编译静态 PHP 二进制目前仅支持 Linux 和 macOS。FreeBSD 环境因为缺少自动化构建环境，所以暂不支持。
 :::
+
+```bash
+bin/setup-runtime
+
+# 对于中国大陆地区等网络环境特殊的用户，可使用镜像站加快下载速度
+bin/setup-runtime --mirror china
+```
+
+此脚本总共会下载两个文件：`bin/php` 和 `bin/composer`，下载完成后，有两种使用方式：
+
+1. 将 `bin/` 目录添加到 PATH 路径中：`export PATH="/path/to/your/static-php-cli/bin:$PATH"`，添加路径后，相当于系统安装了 PHP，可直接使用 `composer`、`php -v` 等命令，也可以直接使用 `bin/spc`。
+2. 直接调用，比如执行 static-php-cli 命令：`bin/php bin/spc --help`，执行 Composer：`bin/php bin/composer update`。
 
 ### 使用 Docker 环境
 
@@ -92,30 +96,66 @@ bin/spc-alpine-docker
 export SPC_USE_SUDO=yes
 ```
 
-### 使用预编译静态 PHP 二进制
+### 使用系统 PHP 环境
 
-如果你不想使用 Docker、在系统内安装 PHP，可以直接下载本项目自身编译好的 php 二进制 cli 程序。使用流程如下：
-
-使用命令部署环境，此脚本会从 [自托管的服务器](https://dl.static-php.dev/static-php-cli/) 下载一个当前操作系统的 php-cli 包，
-并从 [getcomposer](https://getcomposer.org/download/latest-stable/composer.phar) 或 [Aliyun（镜像）](https://mirrors.aliyun.com/composer/composer.phar) 下载 Composer。
-
-::: tip 
-使用预编译静态 PHP 二进制目前仅支持 Linux 和 macOS。FreeBSD 环境因为缺少自动化构建环境，所以暂不支持。
-:::
+下面是系统安装 PHP、Composer 的一些示例命令。具体安装方式建议自行搜索或询问 AI 搜索引擎获取答案，这里不多赘述。
 
 ```bash
-bin/setup-runtime
+# [macOS], 需要先安装 Homebrew. See https://brew.sh/
+# Remember change your composer executable path. For M1/M2 Chip mac, "/opt/homebrew/bin/", for Intel mac, "/usr/local/bin/". Or add it to your own path.
+brew install php wget
+wget https://getcomposer.org/download/latest-stable/composer.phar -O /path/to/your/bin/composer && chmod +x /path/to/your/bin/composer
 
-# 对于中国大陆地区等网络环境特殊的用户，可使用镜像站加快下载速度
-bin/setup-runtime --mirror china
+# [Debian], you need to make sure your php version >= 8.4 and composer >= 2.0
+sudo apt install php-cli composer php-tokenizer
 ```
 
-此脚本总共会下载两个文件：`bin/php` 和 `bin/composer`，下载完成后，有两种使用方式：
+::: tip
+目前 Ubuntu 部分版本的 apt 安装的 php 版本较旧，故不提供安装命令。如有需要，建议先添加 ppa 等软件源后，安装最新版的 PHP 以及 tokenizer、xml、phar 扩展。
 
-1. 将 `bin/` 目录添加到 PATH 路径中：`export PATH="/path/to/your/static-php-cli/bin:$PATH"`，添加路径后，相当于系统安装了 PHP，可直接使用 `composer`、`php -v` 等命令，也可以直接使用 `bin/spc`。
-2. 直接调用，比如执行 static-php-cli 命令：`bin/php bin/spc --help`，执行 Composer：`bin/php bin/composer update`。
+较老版本的 Debian 默认安装的可能为旧版本（<= 8.3）版本的 PHP，建议先升级 Debian 或使用 Docker 或自带的静态二进制环境。
+:::
 
-## 命令 download - 下载依赖包
+## 使用 craft 构建（推荐）
+
+使用 `bin/spc craft` 可以使用一个配置文件，一个命令实现自动检查环境、下载源代码、构建依赖库、构建 PHP 及扩展等。
+
+你需要编写一个 `craft.yml` 文件，存放在当前工作目录下。`craft.yml` 可以由 [命令生成器](./cli-generator) 生成，或者手动编写。
+
+手动编写可参考 [craft.yml 配置](../develop/craft-yml.md) 中的注释来编写。我们下面假设你编译一个扩展组合，并选用 PHP 8.4，输出 `cli` 和 `fpm`：
+
+```yaml
+# path/to/craft.yml
+php-version: 8.4
+extensions: bcmath,posix,phar,zlib,openssl,curl,fileinfo,tokenizer
+sapi:
+  - cli
+  - fpm
+```
+
+然后使用 `bin/spc craft` 命令来编译：
+
+```bash
+bin/spc craft --debug
+```
+
+如果构建成功，你会在当前目录下看到 `buildroot/bin` 目录，里面包含了编译好的 PHP 二进制文件，或相应的 SAPI。
+
+- cli: Windows 下构建结果为 `buildroot/bin/php.exe`，其他平台为 `buildroot/bin/php`。
+- fpm: 构建结果为 `buildroot/bin/php-fpm`。
+- micro: 构建结果为 `buildroot/bin/micro.sfx`，如需进一步与 PHP 代码打包，请查看 [打包 micro 二进制](./manual-build#命令-micro-combine-打包-micro-二进制)。
+- embed: 参见 [embed 使用](./manual-build#embed-使用)。
+- frankenphp: 构建结果为 `buildroot/bin/frankenphp`。
+
+如果中途构建出错，你可以使用 `--debug` 参数查看详细的错误信息，或者使用 `--with-clean` 参数清除旧的编译结果，重新编译。
+
+如使用以上方式仍构建失败，请提交一个 issue，附上你的 `craft.yml` 文件、`log/` 目录的压缩包。
+
+## 分步构建命令
+
+如果你有定制化需求，或分开下载、编译 PHP 和依赖库的需求，可以使用 `bin/spc` 命令分步执行。
+
+### 命令 download - 下载依赖包
 
 使用命令 `bin/spc download` 可以下载编译需要的源代码，包括 php-src 以及依赖的各种库的源码。
 
@@ -132,8 +172,8 @@ bin/spc download --for-libs=liblz4,libevent --for-extensions=pcntl,rar,xml
 # 仅下载要编译的库（包括其依赖，使用库名，不包含可选库）
 bin/spc download --for-libs=liblz4,libevent --without-suggestions
 
-# 下载资源时，忽略部分资源的缓存，强制下载（如切换 PHP 版本）
-bin/spc download --for-extensions=curl,pcntl,xml --ignore-cache-sources=php-src --with-php=8.3
+# 下载资源时，忽略部分资源的缓存，强制下载（如切换特定 PHP 版本）
+bin/spc download --for-extensions=curl,pcntl,xml --ignore-cache-sources=php-src --with-php=8.3.10
 
 # 下载资源时，优先下载有预编译包的依赖库（减少编译依赖的时间）
 bin/spc download --for-extensions="curl,pcntl,xml,mbstring" --prefer-pre-built
@@ -141,8 +181,8 @@ bin/spc download --for-extensions="curl,pcntl,xml,mbstring" --prefer-pre-built
 # 下载所有依赖包
 bin/spc download --all
 
-# 下载所有依赖包，并指定下载的 PHP 主版本，可选：7.3，7.4，8.0，8.1，8.2，8.3。
-bin/spc download --all --with-php=8.2
+# 下载所有依赖包，并指定下载的 PHP 主版本，可选：8.1，8.2，8.3，8.4，也可以使用特定的版本，如 8.3.10。
+bin/spc download --all --with-php=8.3
 
 # 下载时显示下载进度条（curl）
 bin/spc download --all --debug
@@ -169,14 +209,25 @@ bin/spc download --from-zip=/path/to/your/download.zip
 让下载器强制使用你指定的链接下载此 source 的包。使用方法为 `{source-name}:{url}` 即可，可同时重写多个库的下载地址。在使用 `--for-extensions` 选项下载时同样可用。
 
 ```bash
-# 例如：指定下载测试版的 PHP8.3
-bin/spc download --all -U "php-src:https://downloads.php.net/~eric/php-8.3.0beta1.tar.gz"
+# 例如：指定下载 Alpha 版的 PHP8.5
+bin/spc download --all -U "php-src:https://downloads.php.net/~edorian/php-8.5.0alpha2.tar.xz"
 
 # 指定下载旧版本的 curl 库
 bin/spc download --all -U "curl:https://curl.se/download/curl-7.88.1.tar.gz"
 ```
 
-## 命令 doctor - 环境检查
+如果你下载的资源不是链接，而是一个 Git 仓库，你可以使用 `-G` 或 `--custom-git` 重写下载链接，让下载器强制使用你指定的 Git 仓库下载此 source 的包。
+使用方法为 `{source-name}:{branch}:{url}` 即可，可同时重写多个库的下载地址。在使用 `--for-extensions` 选项下载时同样可用。
+
+```bash
+# 例如：下载 master 分支的 php-src
+bin/spc download --for-extensions=redis,phar -G "php-src:master:https://github.com/php/php-src.git"
+
+# 从 swoole-src 仓库下载 master 分支的最新代码，而不是发行版
+bin/spc download --for-extensions=swoole -G "swoole:master:https://github.com/swoole/swoole-src.git"
+```
+
+### 命令 doctor - 环境检查
 
 如果你可以正常运行 `bin/spc` 但无法正常编译静态的 PHP 或依赖库，可以先运行 `bin/spc doctor` 检查系统自身是否缺少依赖。
 
@@ -188,18 +239,20 @@ bin/spc doctor
 bin/spc doctor --auto-fix
 ```
 
-## 命令 build - 编译 PHP
+### 命令 build - 编译 PHP
 
 使用 build 命令可以开始构建静态 php 二进制，在执行 `bin/spc build` 命令前，务必先使用 `download` 命令下载资源，建议使用 `doctor` 检查环境。
 
-### 基本用法
+#### 基本用法
 
 你需要先到 [扩展列表](./extensions) 或 [命令生成器](./cli-generator) 选择你要加入的扩展，然后使用命令 `bin/spc build` 进行编译。你需要指定一个编译目标，从如下参数中选择：
 
 - `--build-cli`: 构建一个 cli sapi（命令行界面，可在命令行执行 PHP 代码）
 - `--build-fpm`: 构建一个 fpm sapi（php-fpm，用于和其他传统的 fpm 架构的软件如 nginx 配合使用）
+- `--build-cgi`: 构建一个 cgi sapi（cgi，可用于传统的 cgi 架构的软件如 apache 配合使用）
 - `--build-micro`: 构建一个 micro sapi（用于构建一个包含 PHP 代码的独立可执行二进制）
 - `--build-embed`: 构建一个 embed sapi（用于嵌入到其他 C 语言程序中）
+- `--build-frankenphp`: 构建一个 [frankenphp](https://github.com/php/frankenphp) 二进制
 - `--build-all`: 构建以上所有 sapi
 
 ```bash
@@ -225,26 +278,18 @@ bin/spc build bcmath,curl,openssl,ftp,posix,pcntl --build-cli
 如果你想构建多个版本的 PHP，且不想每次都重复构建其他依赖库，可以使用 `switch-php-version` 在编译好一个版本后快速切换至另一个版本并编译：
 
 ```shell
-# switch to 8.3
-bin/spc switch-php-version 8.3
+# switch to 8.4
+bin/spc switch-php-version 8.4
 # build
 bin/spc build bcmath,curl,openssl,ftp,posix,pcntl --build-cli
-# switch to 8.0
-bin/spc switch-php-version 8.0
+# switch to 8.1
+bin/spc switch-php-version 8.1
 # build
 bin/spc build bcmath,curl,openssl,ftp,posix,pcntl --build-cli
 ```
 :::
 
-### 调试
-
-如果你在编译过程中遇到了问题，或者想查看每个执行的 shell 命令，可以使用 `--debug` 开启 debug 模式，查看所有终端日志：
-
-```bash
-bin/spc build mysqlnd,pdo_mysql --build-all --debug
-```
-
-### 编译运行选项
+#### 编译运行选项
 
 在编译过程中，有些特殊情况需要对编译器、编译目录的内容进行干预，可以尝试使用以下命令：
 
@@ -252,8 +297,10 @@ bin/spc build mysqlnd,pdo_mysql --build-all --debug
 - `--cxx=XXX`: 指定 C++ 语言编译器的执行命令（Linux 默认 `g++`，macOS 默认 `clang++`）
 - `--with-clean`: 编译 PHP 前先清理旧的 make 产生的文件
 - `--enable-zts`: 让编译的 PHP 为线程安全版本（默认为 NTS 版本）
-- `--no-strip`: 编译 PHP 库后不运行 `strip` 裁剪二进制文件缩小体积（不裁剪的 macOS 二进制文件可使用动态链接的第三方扩展）
+- `--no-strip`: 编译 PHP 库后不运行 `strip` 裁剪二进制文件缩小体积
 - `--with-libs=XXX,YYY`: 编译 PHP 前先编译指定的依赖库，激活部分扩展的可选功能（例如 gd 库的 libavif 等）
+- `--with-config-file-path=XXX`： 查找 `php.ini` 的路径（在 [这里](../faq/index.html#php-ini-的路径是什么) 查看默认路径）
+- `--with-config-file-scan-dir=XXX`： 读取 `php.ini` 后扫描 `.ini` 文件的目录（在 [这里](../faq/index.html#php-ini-的路径是什么) 查看默认路径）
 - `-I xxx=yyy`: 编译前将 INI 选项硬编译到 PHP 内（支持多个选项，别名是 `--with-hardcoded-ini`）
 - `--with-micro-fake-cli`: 在编译 micro 时，让 micro 的 SAPI 伪装为 `cli`（用于兼容一些检查 `PHP_SAPI` 的程序）
 - `--disable-opcache-jit`: 禁用 opcache jit（默认启用）
@@ -262,6 +309,7 @@ bin/spc build mysqlnd,pdo_mysql --build-all --debug
 - `--with-suggested-exts`: 编译时将 `ext-suggests` 也作为编译依赖加入
 - `--with-suggested-libs`: 编译时将 `lib-suggests` 也作为编译依赖加入
 - `--with-upx-pack`: 编译后使用 UPX 减小二进制文件体积（需先使用 `bin/spc install-pkg upx` 安装 upx）
+- `--build-shared=XXX,YYY`: 编译时将指定的扩展编译为共享库（默认编译为静态库）
 
 硬编码 INI 选项适用于 cli、micro、embed。有关硬编码 INI 选项，下面是一个简单的例子，我们预设一个更大的 `memory_limit`，并且禁用 `system` 函数：
 
@@ -329,6 +377,14 @@ memory_limit=1G
 
 如果要打包 phar，只需要将 `a.php` 替换为打包好的 phar 文件即可。但要注意，phar 下的 micro.sfx 需要额外注意路径问题，见 [Developing - Phar 路径问题](../develop/structure#phar-应用目录问题)
 
+## 调试
+
+如果你在编译过程中遇到了问题，或者想查看每个执行的 shell 命令，可以使用 `--debug` 开启 debug 模式，查看所有终端日志：
+
+```bash
+bin/spc build mysqlnd,pdo_mysql --build-all --debug
+```
+
 ## 命令 extract - 手动解压某个库
 
 使用命令 `bin/spc extract` 可以解包和拷贝编译需要的源代码，包括 php-src 以及依赖的各种库的源码（需要自己指定要解包的库名）。
@@ -339,6 +395,32 @@ memory_limit=1G
 # 解压 php-src 和 libxml2 的下载压缩包，解压的源码存放在 source 目录
 bin/spc extract php-src,libxml2
 ```
+
+## 命令 dump-extensions - 导出项目扩展依赖
+
+使用命令 `bin/spc dump-extensions` 可以导出当前项目的扩展依赖。
+
+```bash
+# 打印项目的扩展列表，传入项目包含composer.json的根目录
+bin/spc dump-extensions /path/to/your/project/
+
+# 打印项目的扩展列表，不包含开发依赖
+bin/spc dump-extensions /path-to/tour/project/ --no-dev
+
+# 输出为 spc 命令可接受的扩展列表格式（逗号分割）
+bin/spc dump-extensions /path-to/tour/project/ --format=text
+
+# 输出为 JSON 列表
+bin/spc dump-extensions /path-to/tour/project/ --format=json
+
+# 当项目没有任何扩展时，输出指定扩展组合，而不是返回失败
+bin/spc dump-extensions /path-to/your/project/ --no-ext-output=mbstring,posix,pcntl,phar
+
+# 输出时不排除 spc 不支持的扩展
+bin/spc dump-extensions /path/to/your/project/ --no-spc-filter
+```
+
+需要注意的是，项目的目录下必须包含 `vendor/installed.json` 和 `composer.lock` 文件，否则无法正常获取。
 
 ## 调试命令 dev - 调试命令集合
 
@@ -378,6 +460,8 @@ bin/spc dev:sort-config ext
 下面是安装工具的示例：
 
 - 下载安装 UPX（仅限 Linux 和 Windows）: `bin/spc install-pkg upx`
+- 下载安装 nasm（仅限 Windows）: `bin/spc install-pkg nasm`
+- 下载安装 go-xcaddy: `bin/spc install-pkg go-xcaddy`
 
 ## 命令 del-download - 删除已下载的资源
 
@@ -480,3 +564,75 @@ static-php-cli 开放的方法非常多，文档中无法一一列举，但只�
 - 如果你想重新构建一次，但不重新下载源码，可以先 `rm -rf buildroot source` 删除编译目录和源码目录，然后重新构建。
 - 如果你想更新某个依赖的版本，可以使用 `bin/spc del-download <source-name>` 删除指定的源码，然后使用 `download <source-name>` 重新下载。
 - 如果你想更新所有依赖的版本，可以使用 `bin/spc download --clean` 删除所有下载的源码，然后重新下载。
+
+## embed 使用
+
+如果你想将 static-php 嵌入到其他 C 语言程序中，可以使用 `--build-embed` 构建一个 embed 版本的 PHP。
+
+```bash
+bin/spc build {your extensions} --build-embed --debug
+```
+
+在通常的情况下，PHP embed 编译后会生成 `php-config`。对于 static-php，我们提供了 `spc-config`，用于获取编译时的参数。
+另外，在使用 embed SAPI（libphp.a）时，你需要使用和编译 libphp 相同的编译器，否则会出现链接错误。
+
+下面是 spc-config 的基本用法：
+
+```bash
+# output all flags and options
+bin/spc spc-config curl,zlib,phar,openssl
+
+# output libs
+bin/spc spc-config curl,zlib,phar,openssl --libs
+
+# output includes
+bin/spc spc-config curl,zlib,phar,openssl --includes
+```
+
+默认情况下，static-php 在不同系统使用的编译器分别是：
+
+- macOS: `clang`
+- Linux (Alpine Linux): `gcc`
+- Linux (glibc based distros, x86_64): `/usr/local/musl/bin/x86_64-linux-musl-gcc`
+- Linux (glibc based distros, aarch64): `/usr/local/musl/bin/aarch64-linux-musl-gcc`
+- FreeBSD: `clang`
+
+下面是一个使用 embed SAPI 的例子：
+
+```c
+// embed.c
+#include <sapi/embed/php_embed.h>
+
+int main(int argc,char **argv){
+
+    PHP_EMBED_START_BLOCK(argc,argv)
+
+    zend_file_handle file_handle;
+
+    zend_stream_init_filename(&file_handle,"embed.php");
+
+    if(php_execute_script(&file_handle) == FAILURE){
+        php_printf("Failed to execute PHP script.\n");
+    }
+
+    PHP_EMBED_END_BLOCK()
+    return 0;
+}
+```
+
+
+```php
+<?php 
+// embed.php
+echo "Hello world!\n";
+```
+
+```bash
+# compile in debian/ubuntu x86_64
+/usr/local/musl/bin/x86_64-linux-musl-gcc embed.c $(bin/spc spc-config bcmath,zlib) -static -o embed
+# compile in macOS/FreeBSD
+clang embed.c $(bin/spc spc-config bcmath,zlib) -o embed
+
+./embed
+# out: Hello world!
+```

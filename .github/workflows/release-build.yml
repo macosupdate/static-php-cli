@@ -3,14 +3,18 @@ name: Build SPC Binary
 on:
   push:
     branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+    paths:
+      - '.github/workflows/release-build.yml'
   release:
     types:
       - published
   workflow_dispatch:
 
 env:
-  PHP_VERSION: 8.2
-  MICRO_VERSION: 8.2.18
+  PHP_VERSION: 8.4
+  MICRO_VERSION: 8.4.11
 
 jobs:
   build-release-artifacts:
@@ -23,7 +27,7 @@ jobs:
             os: "ubuntu-latest"
             filename: "spc-linux-x86_64.tar.gz"
           - name: "macos-x86_64"
-            os: "macos-13"
+            os: "macos-15-intel"
             filename: "spc-macos-x86_64.tar.gz"
           - name: "linux-aarch64"
             os: "ubuntu-latest"
@@ -42,12 +46,13 @@ jobs:
         run: echo "SPC_BUILD_DEBUG=--debug" >> $GITHUB_ENV
 
       - name: "Install PHP for official runners"
-        uses: "shivammathur/setup-php@v2"
+        uses: shivammathur/setup-php@v2
         with:
           coverage: none
           tools: composer:v2
           php-version: "${{ env.PHP_VERSION }}"
           ini-values: memory_limit=-1
+          extensions: curl, openssl, mbstring
 
       - name: "Get Composer Cache Directory"
         id: composer-cache
@@ -71,10 +76,10 @@ jobs:
       - name: "Download Minimal Combination"
         run: |
           if [ "${{ matrix.operating-system.name }}" = "windows-x64" ]; then
-            curl https://dl.static-php.dev/static-php-cli/windows/spc-min/php-${{ env.MICRO_VERSION }}-micro-win.zip -o tmp.zip
+            curl -fsSL https://dl.static-php.dev/static-php-cli/windows/spc-min/php-${{ env.MICRO_VERSION }}-micro-win.zip -o tmp.zip
             unzip tmp.zip
           else
-            curl https://dl.static-php.dev/static-php-cli/minimal/php-${{ env.MICRO_VERSION }}-micro-${{ matrix.operating-system.name }}.tar.gz -o tmp.tgz
+            curl -fsSL https://dl.static-php.dev/static-php-cli/minimal/php-${{ env.MICRO_VERSION }}-micro-${{ matrix.operating-system.name }}.tar.gz -o tmp.tgz
             tar -zxvf tmp.tgz
           fi
 
@@ -115,20 +120,56 @@ jobs:
         with:
           files: dist/${{ matrix.operating-system.filename }}
 
-      - name: "Deploy to Self-Hosted Server"
-        if: github.repository == 'crazywhalecc/static-php-cli'
-        uses: easingthemes/ssh-deploy@main
-        env:
-          SSH_PRIVATE_KEY: ${{ secrets.DEPLOY_SERVER_SECRET_KEY }}
-          ARGS: "-rltgoDzvO"
-          SOURCE: "dist/"
-          REMOTE_HOST: ${{ secrets.DEPLOY_SERVER_HOST }}
-          REMOTE_PORT: ${{ secrets.DEPLOY_SERVER_PORT }}
-          REMOTE_USER: ${{ secrets.DEPLOY_SERVER_USER }}
-          TARGET: ${{ secrets.DEPLOY_SERVER_TARGET_SPC_NIGHTLY }}
+      - name: "Deploy to self-hosted OSS"
+        # only run this step if the repository is static-php-cli and the branch is main
+        if: github.repository == 'crazywhalecc/static-php-cli' && github.ref == 'refs/heads/main'
+        uses: static-php/upload-s3-action@v1.0.0
+        with:
+          aws_key_id: ${{ secrets.AWS_KEY_ID }}
+          aws_secret_access_key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws_bucket: ${{ secrets.AWS_BUCKET }}
+          source_dir: "dist/"
+          destination_dir: static-php-cli/spc-bin/nightly/
+          endpoint: ${{ secrets.AWS_ENDPOINT }}
 
       - name: "Upload Artifact"
         uses: actions/upload-artifact@v4
         with:
           path: spc${{ env.SUFFIX }}
           name: spc-${{ matrix.operating-system.name }}${{ env.SUFFIX }}
+  test-spc:
+    name: "Test SPC Binary for ${{ matrix.operating-system.name }}"
+    runs-on: ${{ matrix.operating-system.os }}
+    needs: [build-release-artifacts]
+    strategy:
+      matrix:
+        operating-system:
+          - name: "linux-x86_64"
+            os: "ubuntu-latest"
+          - name: "macos-x86_64"
+            os: "macos-15-intel"
+          - name: "linux-aarch64"
+            os: "ubuntu-24.04-arm"
+          - name: "macos-aarch64"
+            os: "macos-15"
+          - name: "windows-x64"
+            os: "windows-latest"
+    steps:
+      - name: "Checkout"
+        uses: actions/checkout@v4
+
+      - name: "Download Artifact"
+        uses: actions/download-artifact@v4
+        env:
+          SUFFIX: ${{ matrix.operating-system.name == 'windows-x64' && '.exe' || '' }}
+        with:
+          name: spc-${{ matrix.operating-system.name }}${{ env.SUFFIX }}
+
+      - name: "Chmod"
+        if: matrix.operating-system.name != 'windows-x64'
+        run: chmod +x spc
+
+      - name: "Run SPC Tests"
+        env:
+          SUFFIX: ${{ matrix.operating-system.name == 'windows-x64' && '.exe' || '' }}
+        run: ./spc${{ env.SUFFIX }} dev:extensions

@@ -5,40 +5,40 @@ declare(strict_types=1);
 namespace SPC\builder\unix\library;
 
 use SPC\store\FileSystem;
+use SPC\util\executor\UnixAutoconfExecutor;
+use SPC\util\SPCTarget;
 
 trait ncurses
 {
     protected function build(): void
     {
         $filelist = FileSystem::scanDirFiles(BUILD_BIN_PATH, relative: true);
-        shell()->cd($this->source_dir)
-            ->exec(
-                './configure ' .
-                '--enable-static ' .
-                '--disable-shared ' .
-                '--enable-overwrite ' .
-                '--with-curses-h ' .
-                '--enable-pc-files ' .
-                '--enable-echo ' .
-                '--disable-widec ' .
-                '--with-normal ' .
-                '--with-ticlib ' .
-                '--without-tests ' .
-                '--without-dlsym ' .
-                '--without-debug ' .
-                '-enable-symlinks ' .
-                '--bindir=' . BUILD_ROOT_PATH . '/bin ' .
-                '--includedir=' . BUILD_ROOT_PATH . '/include ' .
-                '--libdir=' . BUILD_ROOT_PATH . '/lib ' .
-                '--prefix=' . BUILD_ROOT_PATH
-            )
-            ->exec('make clean')
-            ->exec("make -j{$this->builder->concurrency}")
-            ->exec('make install');
 
+        UnixAutoconfExecutor::create($this)
+            ->appendEnv([
+                'LDFLAGS' => SPCTarget::isStatic() ? '-static' : '',
+            ])
+            ->configure(
+                '--enable-overwrite',
+                '--with-curses-h',
+                '--enable-pc-files',
+                '--enable-echo',
+                '--disable-widec',
+                '--with-normal',
+                '--with-ticlib',
+                '--without-tests',
+                '--without-dlsym',
+                '--without-debug',
+                '-enable-symlinks',
+                "--bindir={$this->getBinDir()}",
+                "--includedir={$this->getIncludeDir()}",
+                "--libdir={$this->getLibDir()}",
+                "--prefix={$this->getBuildRootPath()}",
+            )
+            ->make();
         $final = FileSystem::scanDirFiles(BUILD_BIN_PATH, relative: true);
         // Remove the new files
-        $new_files = array_diff($final, $filelist);
+        $new_files = array_diff($final, $filelist ?: []);
         foreach ($new_files as $file) {
             @unlink(BUILD_BIN_PATH . '/' . $file);
         }

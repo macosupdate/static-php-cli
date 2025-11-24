@@ -6,16 +6,12 @@ namespace SPC\builder\extension;
 
 use SPC\builder\Extension;
 use SPC\builder\macos\MacOSBuilder;
-use SPC\exception\FileSystemException;
 use SPC\store\FileSystem;
 use SPC\util\CustomExt;
 
 #[CustomExt('snappy')]
 class snappy extends Extension
 {
-    /**
-     * @throws FileSystemException
-     */
     public function patchBeforeConfigure(): bool
     {
         FileSystem::replaceFileRegex(
@@ -26,7 +22,7 @@ class snappy extends Extension
         return true;
     }
 
-    public function getUnixConfigureArg(): string
+    public function getUnixConfigureArg(bool $shared = false): string
     {
         return '--enable-snappy --with-snappy-includedir="' . BUILD_ROOT_PATH . '"';
     }

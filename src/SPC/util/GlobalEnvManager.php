@@ -4,12 +4,10 @@ declare(strict_types=1);
 
 namespace SPC\util;
 
-use SPC\builder\BuilderBase;
-use SPC\builder\freebsd\SystemUtil as BSDSystemUtil;
-use SPC\builder\linux\SystemUtil as LinuxSystemUtil;
-use SPC\builder\macos\SystemUtil as MacOSSystemUtil;
-use SPC\builder\windows\SystemUtil as WindowsSystemUtil;
-use SPC\exception\RuntimeException;
+use SPC\builder\macos\SystemUtil;
+use SPC\exception\SPCInternalException;
+use SPC\exception\WrongUsageException;
+use SPC\toolchain\ToolchainManager;
 
 /**
  * Environment variable manager
@@ -18,172 +16,162 @@ class GlobalEnvManager
 {
     private static array $env_cache = [];
 
+    private static bool $initialized = false;
+
     public static function getInitializedEnv(): array
     {
         return self::$env_cache;
     }
 
     /**
-     * Initialize the environment variables
-     *
-     * @param  BuilderBase      $builder Builder
-     * @throws RuntimeException
+     * Initialize the environment variables.
      */
-    public static function init(BuilderBase $builder): void
+    public static function init(): void
     {
-        // Init global env, build related path
-        self::putenv('BUILD_ROOT_PATH=' . BUILD_ROOT_PATH);
-        self::putenv('BUILD_INCLUDE_PATH=' . BUILD_INCLUDE_PATH);
-        self::putenv('BUILD_LIB_PATH=' . BUILD_LIB_PATH);
-        self::putenv('BUILD_BIN_PATH=' . BUILD_BIN_PATH);
-        self::putenv('PKG_ROOT_PATH=' . PKG_ROOT_PATH);
-        self::putenv('SOURCE_PATH=' . SOURCE_PATH);
-        self::putenv('DOWNLOAD_PATH=' . DOWNLOAD_PATH);
+        if (self::$initialized) {
+            return;
+        }
+        // Check pre-defined env vars exists
+        if (getenv('BUILD_ROOT_PATH') === false) {
+            throw new SPCInternalException('You must include src/globals/internal-env.php before using GlobalEnvManager');
+        }
 
-        // Init SPC env
-        self::initIfNotExists('SPC_CONCURRENCY', match (PHP_OS_FAMILY) {
-            'Windows' => (string) WindowsSystemUtil::getCpuCount(),
-            'Darwin' => (string) MacOSSystemUtil::getCpuCount(),
-            'Linux' => (string) LinuxSystemUtil::getCpuCount(),
-            'BSD' => (string) BSDSystemUtil::getCpuCount(),
-            default => '1',
-        });
-
-        // Init system-specific env
-        match (PHP_OS_FAMILY) {
-            'Windows' => self::initWindowsEnv(),
-            'Darwin' => self::initDarwinEnv($builder),
-            'Linux' => self::initLinuxEnv($builder),
-            'BSD' => 'TODO',
-            default => logger()->warning('Unknown OS: ' . PHP_OS_FAMILY),
-        };
-    }
-
-    private static function initWindowsEnv(): void
-    {
-        // Windows need php-sdk binary tools
-        self::initIfNotExists('PHP_SDK_PATH', WORKING_DIR . DIRECTORY_SEPARATOR . 'php-sdk-binary-tools');
-        self::initIfNotExists('UPX_EXEC', PKG_ROOT_PATH . DIRECTORY_SEPARATOR . 'bin' . DIRECTORY_SEPARATOR . 'upx.exe');
-    }
-
-    private static function initLinuxEnv(BuilderBase $builder): void
-    {
-        // Init C Compiler and C++ Compiler (alpine)
-        if (LinuxSystemUtil::isMuslDist()) {
-            self::initIfNotExists('CC', 'gcc');
-            self::initIfNotExists('CXX', 'g++');
-            self::initIfNotExists('AR', 'ar');
-            self::initIfNotExists('LD', 'ld.gold');
-        } else {
-            $arch = arch2gnu(php_uname('m'));
-            self::initIfNotExists('CC', "{$arch}-linux-musl-gcc");
-            self::initIfNotExists('CXX', "{$arch}-linux-musl-g++");
-            self::initIfNotExists('AR', "{$arch}-linux-musl-ar");
-            self::initIfNotExists('LD', 'ld.gold');
-            if (getenv('SPC_NO_MUSL_PATH') !== 'yes') {
-                self::putenv("PATH=/usr/local/musl/bin:/usr/local/musl/{$arch}-linux-musl/bin:" . getenv('PATH'));
+        // Define env vars for unix
+        if (is_unix()) {
+            self::addPathIfNotExists(BUILD_BIN_PATH);
+            self::addPathIfNotExists(PKG_ROOT_PATH . '/bin');
+            $pkgConfigPath = getenv('PKG_CONFIG_PATH');
+            if ($pkgConfigPath !== false) {
+                self::putenv('PKG_CONFIG_PATH=' . BUILD_LIB_PATH . "/pkgconfig:{$pkgConfigPath}");
+            } else {
+                self::putenv('PKG_CONFIG_PATH=' . BUILD_LIB_PATH . '/pkgconfig');
             }
         }
 
-        // Init arch-specific cflags
-        self::initIfNotExists('SPC_DEFAULT_C_FLAGS', '');
-        self::initIfNotExists('SPC_DEFAULT_CXX_FLAGS', '');
-        self::initIfNotExists('SPC_EXTRA_LIBS', '');
+        $ini = self::readIniFile();
 
-        // Init linux-only env
-        self::initIfNotExists('UPX_EXEC', PKG_ROOT_PATH . '/bin/upx');
-        self::initIfNotExists('GNU_ARCH', arch2gnu(php_uname('m')));
-
-        // optimization flags with different strip option
-        $php_extra_cflags_optimize = $builder->getOption('no-strip') ? '-g -O0' : '-g -Os';
-        // optimization flags with different c compiler
-        $clang_use_lld = str_ends_with(getenv('CC'), 'clang') && LinuxSystemUtil::findCommand('lld') ? '-Xcompiler -fuse-ld=lld ' : '';
-
-        $init_spc_cmd_maps = [
-            // Init default build command prefix
-            'SPC_CMD_PREFIX_PHP_BUILDCONF' => './buildconf --force',
-            'SPC_CMD_PREFIX_PHP_CONFIGURE' => $builder->getOption('ld_library_path') . ' ./configure --prefix= --with-valgrind=no --enable-shared=no --enable-static=yes --disable-all --disable-cgi --disable-phpdbg',
-            'SPC_CMD_PREFIX_PHP_MAKE' => 'make -j' . getenv('SPC_CONCURRENCY'),
-            // Init default build vars for build command
-            'SPC_CMD_VAR_PHP_CONFIGURE_CFLAGS' => getenv('SPC_DEFAULT_C_FLAGS'),
-            'SPC_CMD_VAR_PHP_CONFIGURE_CPPFLAGS' => '-I' . BUILD_INCLUDE_PATH,
-            'SPC_CMD_VAR_PHP_CONFIGURE_LDFLAGS' => '-L' . BUILD_LIB_PATH,
-            'SPC_CMD_VAR_PHP_CONFIGURE_LIBS' => '-ldl -lpthread -lm',
-            'SPC_CMD_VAR_PHP_MAKE_EXTRA_CFLAGS' => $php_extra_cflags_optimize . ' -fno-ident -fPIE',
-            'SPC_CMD_VAR_PHP_MAKE_EXTRA_LIBS' => '',
-            'SPC_CMD_VAR_PHP_MAKE_EXTRA_LDFLAGS_PROGRAM' => $clang_use_lld . '-all-static',
-        ];
-        foreach ($init_spc_cmd_maps as $name => $value) {
-            self::initIfNotExists($name, $value);
+        $default_put_list = [];
+        foreach ($ini['global'] as $k => $v) {
+            if (getenv($k) === false) {
+                $default_put_list[$k] = $v;
+                self::putenv("{$k}={$v}");
+            }
+        }
+        $os_ini = match (PHP_OS_FAMILY) {
+            'Windows' => $ini['windows'] ?? [],
+            'Darwin' => $ini['macos'] ?? [],
+            'Linux' => $ini['linux'] ?? [],
+            'BSD' => $ini['freebsd'] ?? [],
+            default => [],
+        };
+        foreach ($os_ini as $k => $v) {
+            if (getenv($k) === false) {
+                $default_put_list[$k] = $v;
+                self::putenv("{$k}={$v}");
+            }
         }
 
-        self::initUnixEnv($builder);
-    }
+        ToolchainManager::initToolchain();
 
-    private static function initDarwinEnv(BuilderBase $builder): void
-    {
-        // Init C Compiler and C++ Compiler
-        self::initIfNotExists('CC', 'clang');
-        self::initIfNotExists('CXX', 'clang++');
+        // apply second time
+        $ini2 = self::readIniFile();
 
-        // Init arch-specific cflags
-        self::initIfNotExists('SPC_DEFAULT_C_FLAGS', match (php_uname('m')) {
-            'arm64', 'aarch64' => '--target=arm64-apple-darwin',
-            default => '--target=x86_64-apple-darwin',
-        });
-        // Init arch-specific cxxflags
-        self::initIfNotExists('SPC_DEFAULT_CXX_FLAGS', match (php_uname('m')) {
-            'arm64', 'aarch64' => '--target=arm64-apple-darwin',
-            default => '--target=x86_64-apple-darwin',
-        });
-
-        // Init extra libs (will be appended before `before-php-buildconf` event point)
-        self::initIfNotExists('SPC_EXTRA_LIBS', '');
-
-        $init_spc_cmd_maps = [
-            // Init default build command prefix
-            'SPC_CMD_PREFIX_PHP_BUILDCONF' => './buildconf --force',
-            'SPC_CMD_PREFIX_PHP_CONFIGURE' => './configure --prefix= --with-valgrind=no --enable-shared=no --enable-static=yes --disable-all --disable-cgi --disable-phpdbg',
-            'SPC_CMD_PREFIX_PHP_MAKE' => 'make -j' . getenv('SPC_CONCURRENCY'),
-            // Init default build vars for build command
-            'SPC_CMD_VAR_PHP_CONFIGURE_CFLAGS' => getenv('SPC_DEFAULT_C_FLAGS') . ' -Werror=unknown-warning-option',
-            'SPC_CMD_VAR_PHP_CONFIGURE_CPPFLAGS' => '-I' . BUILD_INCLUDE_PATH,
-            'SPC_CMD_VAR_PHP_CONFIGURE_LDFLAGS' => '-L' . BUILD_LIB_PATH,
-            'SPC_CMD_VAR_PHP_MAKE_EXTRA_CFLAGS' => $builder->getOption('no-strip') ? '-g -O0' : '-g -Os',
-            'SPC_CMD_VAR_PHP_MAKE_EXTRA_LIBS' => '-lresolv',
-        ];
-        foreach ($init_spc_cmd_maps as $name => $value) {
-            self::initIfNotExists($name, $value);
+        foreach ($ini2['global'] as $k => $v) {
+            if (isset($default_put_list[$k]) && $default_put_list[$k] !== $v) {
+                self::putenv("{$k}={$v}");
+            }
         }
-
-        self::initUnixEnv($builder);
-    }
-
-    private static function initUnixEnv(BuilderBase $builder): void
-    {
-        self::putenv('PATH=' . BUILD_ROOT_PATH . '/bin:' . getenv('PATH'));
-        self::putenv('PKG_CONFIG=' . BUILD_BIN_PATH . '/pkg-config');
-        self::putenv('PKG_CONFIG_PATH=' . BUILD_ROOT_PATH . '/lib/pkgconfig');
-    }
-
-    /**
-     * Initialize the environment variable if it does not exist
-     *
-     * @param string $name  Environment variable name
-     * @param string $value Environment variable value
-     */
-    private static function initIfNotExists(string $name, string $value): void
-    {
-        if (($val = getenv($name)) === false) {
-            self::putenv($name . '=' . $value);
-        } else {
-            logger()->debug("env [{$name}] existing: {$val}");
+        $os_ini2 = match (PHP_OS_FAMILY) {
+            'Windows' => $ini2['windows'] ?? [],
+            'Darwin' => $ini2['macos'] ?? [],
+            'Linux' => $ini2['linux'] ?? [],
+            'BSD' => $ini2['freebsd'] ?? [],
+            default => [],
+        };
+        foreach ($os_ini2 as $k => $v) {
+            if (isset($default_put_list[$k]) && $default_put_list[$k] !== $v) {
+                self::putenv("{$k}={$v}");
+            }
         }
+        self::$initialized = true;
     }
 
-    private static function putenv(string $val): void
+    public static function putenv(string $val): void
     {
         f_putenv($val);
         self::$env_cache[] = $val;
+    }
+
+    public static function addPathIfNotExists(string $path): void
+    {
+        if (is_unix() && !str_contains(getenv('PATH'), $path)) {
+            self::putenv("PATH={$path}:" . getenv('PATH'));
+        }
+    }
+
+    /**
+     * Initialize the toolchain after the environment variables are set.
+     * The toolchain or environment availability check is done here.
+     */
+    public static function afterInit(): void
+    {
+        if (!filter_var(getenv('SPC_SKIP_TOOLCHAIN_CHECK'), FILTER_VALIDATE_BOOL)) {
+            ToolchainManager::afterInitToolchain();
+        }
+        // test bison
+        if (PHP_OS_FAMILY === 'Darwin') {
+            if ($bison = SystemUtil::findCommand('bison', ['/opt/homebrew/opt/bison/bin', '/usr/local/opt/bison/bin'])) {
+                self::putenv("BISON={$bison}");
+            }
+            if ($yacc = SystemUtil::findCommand('yacc', ['/opt/homebrew/opt/bison/bin', '/usr/local/opt/bison/bin'])) {
+                self::putenv("YACC={$yacc}");
+            }
+        }
+    }
+
+    private static function readIniFile(): array
+    {
+        // Init env.ini file, read order:
+        //      WORKING_DIR/config/env.ini
+        //      ROOT_DIR/config/env.ini
+        $ini_files = [
+            WORKING_DIR . '/config/env.ini',
+            ROOT_DIR . '/config/env.ini',
+        ];
+        $ini_custom = [
+            WORKING_DIR . '/config/env.custom.ini',
+            ROOT_DIR . '/config/env.custom.ini',
+        ];
+        $ini = null;
+        foreach ($ini_files as $ini_file) {
+            if (file_exists($ini_file)) {
+                $ini = parse_ini_file($ini_file, true);
+                break;
+            }
+        }
+        if ($ini === null) {
+            throw new WrongUsageException('env.ini not found');
+        }
+        if ($ini === false || !isset($ini['global'])) {
+            throw new WrongUsageException('Failed to parse ' . $ini_file);
+        }
+        // apply custom env
+        foreach ($ini_custom as $ini_file) {
+            if (file_exists($ini_file)) {
+                $ini_custom = parse_ini_file($ini_file, true);
+                if ($ini_custom !== false) {
+                    $ini['global'] = array_merge($ini['global'], $ini_custom['global'] ?? []);
+                    match (PHP_OS_FAMILY) {
+                        'Windows' => $ini['windows'] = array_merge($ini['windows'], $ini_custom['windows'] ?? []),
+                        'Darwin' => $ini['macos'] = array_merge($ini['macos'], $ini_custom['macos'] ?? []),
+                        'Linux' => $ini['linux'] = array_merge($ini['linux'], $ini_custom['linux'] ?? []),
+                        'BSD' => $ini['freebsd'] = array_merge($ini['freebsd'], $ini_custom['freebsd'] ?? []),
+                        default => null,
+                    };
+                }
+                break;
+            }
+        }
+        return $ini;
     }
 }

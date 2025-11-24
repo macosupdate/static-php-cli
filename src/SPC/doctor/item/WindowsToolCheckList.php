@@ -8,7 +8,6 @@ use SPC\builder\windows\SystemUtil;
 use SPC\doctor\AsCheckItem;
 use SPC\doctor\AsFixItem;
 use SPC\doctor\CheckResult;
-use SPC\exception\RuntimeException;
 use SPC\store\FileSystem;
 use SPC\store\PackageManager;
 
@@ -37,10 +36,10 @@ class WindowsToolCheckList
     #[AsCheckItem('if php-sdk-binary-tools are downloaded', limit_os: 'Windows', level: 997)]
     public function checkSDK(): ?CheckResult
     {
-        if (!file_exists(PHP_SDK_PATH . DIRECTORY_SEPARATOR . 'phpsdk-starter.bat')) {
+        if (!file_exists(getenv('PHP_SDK_PATH') . DIRECTORY_SEPARATOR . 'phpsdk-starter.bat')) {
             return CheckResult::fail('php-sdk-binary-tools not downloaded', 'install-php-sdk');
         }
-        return CheckResult::ok(PHP_SDK_PATH);
+        return CheckResult::ok(getenv('PHP_SDK_PATH'));
     }
 
     #[AsCheckItem('if git associated command exists', limit_os: 'Windows', level: 996)]
@@ -80,12 +79,8 @@ class WindowsToolCheckList
     #[AsFixItem('install-php-sdk')]
     public function installPhpSdk(): bool
     {
-        try {
-            FileSystem::removeDir(PHP_SDK_PATH);
-            cmd(true)->exec('git.exe clone --depth 1 https://github.com/php/php-sdk-binary-tools.git ' . PHP_SDK_PATH);
-        } catch (RuntimeException) {
-            return false;
-        }
+        FileSystem::removeDir(getenv('PHP_SDK_PATH'));
+        cmd(true)->exec('git.exe clone --depth 1 https://github.com/php/php-sdk-binary-tools.git ' . getenv('PHP_SDK_PATH'));
         return true;
     }
 

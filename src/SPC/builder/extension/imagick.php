@@ -5,25 +5,24 @@ declare(strict_types=1);
 namespace SPC\builder\extension;
 
 use SPC\builder\Extension;
-use SPC\builder\linux\LinuxBuilder;
 use SPC\util\CustomExt;
 
 #[CustomExt('imagick')]
 class imagick extends Extension
 {
-    public function patchBeforeMake(): bool
+    public function getUnixConfigureArg(bool $shared = false): string
     {
-        // imagick may call omp_pause_all which requires -lgomp
-        $extra_libs = getenv('SPC_EXTRA_LIBS') ?: '';
-        if ($this->builder instanceof LinuxBuilder) {
-            $extra_libs .= (empty($extra_libs) ? '' : ' ') . '-lgomp ';
-        }
-        f_putenv('SPC_EXTRA_LIBS=' . $extra_libs);
-        return true;
+        $disable_omp = ' ac_cv_func_omp_pause_resource_all=no';
+        return '--with-imagick=' . ($shared ? 'shared,' : '') . BUILD_ROOT_PATH . $disable_omp;
     }
 
-    public function getUnixConfigureArg(): string
+    protected function splitLibsIntoStaticAndShared(string $allLibs): array
     {
-        return '--with-imagick=' . BUILD_ROOT_PATH;
+        [$static, $shared] = parent::splitLibsIntoStaticAndShared($allLibs);
+        if (str_contains(getenv('PATH'), 'rh/devtoolset') || str_contains(getenv('PATH'), 'rh/gcc-toolset')) {
+            $static .= ' -l:libstdc++.a';
+            $shared = str_replace('-lstdc++', '', $shared);
+        }
+        return [clean_spaces($static), clean_spaces($shared)];
     }
 }

@@ -14,9 +14,29 @@ use SPC\util\DependencyUtil;
  */
 final class DependencyUtilTest extends TestCase
 {
+    private array $originalConfig;
+
+    protected function setUp(): void
+    {
+        // Save original configuration
+        $this->originalConfig = [
+            'source' => Config::$source,
+            'lib' => Config::$lib,
+            'ext' => Config::$ext,
+        ];
+    }
+
+    protected function tearDown(): void
+    {
+        // Restore original configuration
+        Config::$source = $this->originalConfig['source'];
+        Config::$lib = $this->originalConfig['lib'];
+        Config::$ext = $this->originalConfig['ext'];
+    }
+
     public function testGetExtLibsByDeps(): void
     {
-        // example
+        // Set up test data
         Config::$source = [
             'test1' => [
                 'type' => 'url',
@@ -29,6 +49,8 @@ final class DependencyUtilTest extends TestCase
             ],
         ];
         Config::$lib = [
+            'lib-base' => ['type' => 'root'],
+            'php' => ['type' => 'root'],
             'libaaa' => [
                 'source' => 'test1',
                 'static-libs' => ['libaaa.a'],
@@ -65,14 +87,15 @@ final class DependencyUtilTest extends TestCase
                 'lib-depends' => ['libeee'],
             ],
         ];
-        // test getExtLibsByDeps (notmal test with ext-depends and lib-depends)
 
+        // Test dependency resolution
         [$exts, $libs, $not_included] = DependencyUtil::getExtsAndLibs(['ext-a'], include_suggested_exts: true);
         $this->assertContains('libbbb', $libs);
         $this->assertContains('libccc', $libs);
         $this->assertContains('ext-b', $exts);
         $this->assertContains('ext-b', $not_included);
-        // test dep order
+
+        // Test dependency order
         $this->assertIsInt($b = array_search('libbbb', $libs));
         $this->assertIsInt($c = array_search('libccc', $libs));
         $this->assertIsInt($a = array_search('libaaa', $libs));

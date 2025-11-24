@@ -4,9 +4,7 @@ declare(strict_types=1);
 
 namespace SPC\util;
 
-use SPC\exception\FileSystemException;
-use SPC\exception\RuntimeException;
-use SPC\exception\WrongUsageException;
+use SPC\exception\SPCInternalException;
 use SPC\store\Config;
 use SPC\store\FileSystem;
 
@@ -42,11 +40,8 @@ class LicenseDumper
     /**
      * Dump source licenses to target directory
      *
-     * @param  string              $target_dir Target directory
-     * @return bool                Success or not
-     * @throws WrongUsageException
-     * @throws FileSystemException
-     * @throws RuntimeException
+     * @param  string $target_dir Target directory
+     * @return bool   Success or not
      */
     public function dump(string $target_dir): bool
     {
@@ -70,6 +65,9 @@ class LicenseDumper
         }
 
         foreach ($this->libs as $lib) {
+            if (Config::getLib($lib, 'type', 'lib') !== 'lib') {
+                continue;
+            }
             $source_name = Config::getLib($lib, 'source');
             foreach ($this->getSourceLicenses($source_name) as $index => $license) {
                 $result = file_put_contents("{$target_dir}/lib_{$lib}_{$index}.txt", $license);
@@ -91,15 +89,16 @@ class LicenseDumper
     }
 
     /**
-     * @return string[]
-     * @throws FileSystemException
-     * @throws RuntimeException
+     * Returns an iterable of source licenses for a given source name.
+     *
+     * @param  string   $source_name Source name
+     * @return string[] String iterable of source licenses
      */
     private function getSourceLicenses(string $source_name): iterable
     {
         $licenses = Config::getSource($source_name)['license'] ?? [];
         if ($licenses === []) {
-            throw new RuntimeException('source [' . $source_name . '] license meta not exist');
+            throw new SPCInternalException("source [{$source_name}] license meta not exist");
         }
 
         if (!array_is_list($licenses)) {
@@ -110,28 +109,34 @@ class LicenseDumper
             yield $index => match ($license['type']) {
                 'text' => $license['text'],
                 'file' => $this->loadSourceFile($source_name, $index, $license['path'], Config::getSource($source_name)['path'] ?? null),
-                default => throw new RuntimeException('source [' . $source_name . '] license type is not allowed'),
+                default => throw new SPCInternalException("source [{$source_name}] license type is not allowed"),
             };
         }
     }
 
     /**
-     * @throws RuntimeException
+     * Loads a source license file from the specified path.
      */
-    private function loadSourceFile(string $source_name, int $index, ?string $in_path, ?string $custom_base_path = null): string
+    private function loadSourceFile(string $source_name, int $index, array|string|null $in_path, ?string $custom_base_path = null): string
     {
         if (is_null($in_path)) {
-            throw new RuntimeException('source [' . $source_name . '] license file is not set, please check config/source.json');
+            throw new SPCInternalException("source [{$source_name}] license file is not set, please check config/source.json");
         }
 
-        if (file_exists(SOURCE_PATH . '/' . ($custom_base_path ?? $source_name) . '/' . $in_path)) {
-            return file_get_contents(SOURCE_PATH . '/' . ($custom_base_path ?? $source_name) . '/' . $in_path);
+        if (!is_array($in_path)) {
+            $in_path = [$in_path];
+        }
+
+        foreach ($in_path as $item) {
+            if (file_exists(SOURCE_PATH . '/' . ($custom_base_path ?? $source_name) . '/' . $item)) {
+                return file_get_contents(SOURCE_PATH . '/' . ($custom_base_path ?? $source_name) . '/' . $item);
+            }
         }
 
         if (file_exists(BUILD_ROOT_PATH . '/source-licenses/' . $source_name . '/' . $index . '.txt')) {
             return file_get_contents(BUILD_ROOT_PATH . '/source-licenses/' . $source_name . '/' . $index . '.txt');
         }
 
-        throw new RuntimeException('source [' . $source_name . '] license file [' . $in_path . '] not exist');
+        throw new SPCInternalException("Cannot find any license file in source [{$source_name}] directory!");
     }
 }

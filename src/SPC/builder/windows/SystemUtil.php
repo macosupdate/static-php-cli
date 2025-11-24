@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace SPC\builder\windows;
 
-use SPC\exception\FileSystemException;
 use SPC\store\FileSystem;
 
 class SystemUtil
@@ -21,7 +20,7 @@ class SystemUtil
         if (!$paths) {
             $paths = explode(PATH_SEPARATOR, getenv('Path'));
             if ($include_sdk_bin) {
-                $paths[] = PHP_SDK_PATH . '\bin';
+                $paths[] = getenv('PHP_SDK_PATH') . '\bin';
             }
         }
         foreach ($paths as $path) {
@@ -75,9 +74,8 @@ class SystemUtil
     /**
      * Create CMake toolchain file.
      *
-     * @param  null|string         $cflags  CFLAGS for cmake, default use '/MT /Os /Ob1 /DNDEBUG /D_ACRTIMP= /D_CRTIMP='
-     * @param  null|string         $ldflags LDFLAGS for cmake, default use '/nodefaultlib:msvcrt /nodefaultlib:msvcrtd /defaultlib:libcmt'
-     * @throws FileSystemException
+     * @param null|string $cflags  CFLAGS for cmake, default use '/MT /Os /Ob1 /DNDEBUG /D_ACRTIMP= /D_CRTIMP='
+     * @param null|string $ldflags LDFLAGS for cmake, default use '/nodefaultlib:msvcrt /nodefaultlib:msvcrtd /defaultlib:libcmt'
      */
     public static function makeCmakeToolchainFile(?string $cflags = null, ?string $ldflags = null): string
     {
@@ -99,6 +97,9 @@ SET(CMAKE_EXE_LINKER_FLAGS "{$ldflags}")
 SET(CMAKE_FIND_ROOT_PATH "{$buildroot}")
 SET(CMAKE_MSVC_RUNTIME_LIBRARY MultiThreaded)
 CMAKE;
+        if (!is_dir(SOURCE_PATH)) {
+            FileSystem::createDir(SOURCE_PATH);
+        }
         FileSystem::writeFile(SOURCE_PATH . '\toolchain.cmake', $toolchain);
         return realpath(SOURCE_PATH . '\toolchain.cmake');
     }

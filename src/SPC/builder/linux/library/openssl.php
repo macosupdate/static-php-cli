@@ -1,4 +1,5 @@
 <?php
+
 /**
  * Copyright (c) 2022 Yun Dou <dixyes@gmail.com>
  *
@@ -20,31 +21,23 @@ declare(strict_types=1);
 
 namespace SPC\builder\linux\library;
 
-use SPC\builder\linux\SystemUtil;
-use SPC\exception\FileSystemException;
-use SPC\exception\RuntimeException;
-use SPC\exception\WrongUsageException;
 use SPC\store\FileSystem;
 
 class openssl extends LinuxLibraryBase
 {
+    use \SPC\builder\traits\openssl;
+
     public const NAME = 'openssl';
 
-    /**
-     * @throws FileSystemException
-     * @throws RuntimeException
-     * @throws WrongUsageException
-     */
     public function build(): void
     {
-        [,,$destdir] = SEPARATED_PATH;
-
         $extra = '';
         $ex_lib = '-ldl -pthread';
+        $arch = getenv('SPC_ARCH');
 
-        $env = "CC='" . getenv('CC') . ' -static -idirafter ' . BUILD_INCLUDE_PATH .
+        $env = "CC='" . getenv('CC') . ' -idirafter ' . BUILD_INCLUDE_PATH .
             ' -idirafter /usr/include/ ' .
-            ' -idirafter /usr/include/' . $this->builder->getOption('arch') . '-linux-gnu/ ' .
+            ' -idirafter /usr/include/' . getenv('SPC_ARCH') . '-linux-gnu/ ' .
             "' ";
         // lib:zlib
         $zlib = $this->builder->getLib('zlib');
@@ -60,34 +53,32 @@ class openssl extends LinuxLibraryBase
 
         $ex_lib = trim($ex_lib);
 
-        $clang_postfix = SystemUtil::getCCType(getenv('CC')) === 'clang' ? '-clang' : '';
-
-        shell()->cd($this->source_dir)
-            ->setEnv(['CFLAGS' => $this->getLibExtraCFlags() ?: $this->builder->arch_c_flags, 'LDFLAGS' => $this->getLibExtraLdFlags(), 'LIBS' => $this->getLibExtraLibs()])
-            ->execWithEnv(
+        shell()->cd($this->source_dir)->initializeEnv($this)
+            ->exec(
                 "{$env} ./Configure no-shared {$extra} " .
-                '--prefix=/ ' .
-                '--libdir=lib ' .
-                '-static ' .
+                '--prefix=' . BUILD_ROOT_PATH . ' ' .
+                '--libdir=' . BUILD_LIB_PATH . ' ' .
+                '--openssldir=/etc/ssl ' .
                 "{$zlib_extra}" .
+                'enable-pie ' .
                 'no-legacy ' .
-                "linux-{$this->builder->getOption('arch')}{$clang_postfix}"
+                "linux-{$arch}"
             )
             ->exec('make clean')
-            ->execWithEnv("make -j{$this->builder->concurrency} CNF_EX_LIBS=\"{$ex_lib}\"")
-            ->exec("make install_sw DESTDIR={$destdir}");
+            ->exec("make -j{$this->builder->concurrency} CNF_EX_LIBS=\"{$ex_lib}\"")
+            ->exec('make install_sw');
         $this->patchPkgconfPrefix(['libssl.pc', 'openssl.pc', 'libcrypto.pc']);
         // patch for openssl 3.3.0+
         if (!str_contains($file = FileSystem::readFile(BUILD_LIB_PATH . '/pkgconfig/libssl.pc'), 'prefix=')) {
-            FileSystem::writeFile(BUILD_LIB_PATH . '/pkgconfig/libssl.pc', 'prefix=${pcfiledir}/../..' . "\n" . $file);
+            FileSystem::writeFile(BUILD_LIB_PATH . '/pkgconfig/libssl.pc', 'prefix=' . BUILD_ROOT_PATH . "\n" . $file);
         }
         if (!str_contains($file = FileSystem::readFile(BUILD_LIB_PATH . '/pkgconfig/openssl.pc'), 'prefix=')) {
-            FileSystem::writeFile(BUILD_LIB_PATH . '/pkgconfig/openssl.pc', 'prefix=${pcfiledir}/../..' . "\n" . $file);
+            FileSystem::writeFile(BUILD_LIB_PATH . '/pkgconfig/openssl.pc', 'prefix=' . BUILD_ROOT_PATH . "\n" . $file);
         }
         if (!str_contains($file = FileSystem::readFile(BUILD_LIB_PATH . '/pkgconfig/libcrypto.pc'), 'prefix=')) {
-            FileSystem::writeFile(BUILD_LIB_PATH . '/pkgconfig/libcrypto.pc', 'prefix=${pcfiledir}/../..' . "\n" . $file);
+            FileSystem::writeFile(BUILD_LIB_PATH . '/pkgconfig/libcrypto.pc', 'prefix=' . BUILD_ROOT_PATH . "\n" . $file);
         }
-        FileSystem::replaceFileRegex(BUILD_LIB_PATH . '/pkgconfig/libcrypto.pc', '/Libs.private:.*/m', 'Libs.private: ${libdir}/libz.a');
+        FileSystem::replaceFileRegex(BUILD_LIB_PATH . '/pkgconfig/libcrypto.pc', '/Libs.private:.*/m', 'Requires.private: zlib');
         FileSystem::replaceFileRegex(BUILD_LIB_PATH . '/cmake/OpenSSL/OpenSSLConfig.cmake', '/set\(OPENSSL_LIBCRYPTO_DEPENDENCIES .*\)/m', 'set(OPENSSL_LIBCRYPTO_DEPENDENCIES "${OPENSSL_LIBRARY_DIR}/libz.a")');
     }
 }
