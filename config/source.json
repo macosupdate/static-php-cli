@@ -184,6 +184,15 @@
             ]
         }
     },
+    "ext-maxminddb": {
+        "type": "url",
+        "url": "https://pecl.php.net/get/maxminddb",
+        "filename": "ext-maxminddb.tgz",
+        "license": {
+            "type": "file",
+            "path": "LICENSE"
+        }
+    },
     "ext-memcache": {
         "type": "url",
         "url": "https://pecl.php.net/get/memcache",
@@ -641,6 +650,16 @@
             "path": "LICENSE"
         }
     },
+    "libmaxminddb": {
+        "type": "ghrel",
+        "repo": "maxmind/libmaxminddb",
+        "match": "libmaxminddb-.+\\.tar\\.gz",
+        "prefer-stable": true,
+        "license": {
+            "type": "file",
+            "path": "LICENSE"
+        }
+    },
     "libmemcached": {
         "type": "ghtagtar",
         "repo": "awesomized/libmemcached",
@@ -752,8 +771,9 @@
         ]
     },
     "libwebp": {
-        "type": "url",
-        "url": "https://github.com/webmproject/libwebp/archive/refs/tags/v1.3.2.tar.gz",
+        "type": "ghtagtar",
+        "repo": "webmproject/libwebp",
+        "match": "v1\\.\\d+\\.\\d+$",
         "provide-pre-built": true,
         "license": {
             "type": "file",
@@ -761,8 +781,10 @@
         }
     },
     "libxml2": {
-        "type": "url",
-        "url": "https://github.com/GNOME/libxml2/archive/refs/tags/v2.12.5.tar.gz",
+        "type": "ghtagtar",
+        "repo": "GNOME/libxml2",
+        "match": "v2\\.\\d+\\.\\d+$",
+        "provide-pre-built": false,
         "license": {
             "type": "file",
             "path": "Copyright"
@@ -939,6 +961,15 @@
         "url": "https://pecl.php.net/get/parallel",
         "path": "php-src/ext/parallel",
         "filename": "parallel.tgz",
+        "license": {
+            "type": "file",
+            "path": "LICENSE"
+        }
+    },
+    "pcov": {
+        "type": "url",
+        "url": "https://pecl.php.net/get/pcov",
+        "filename": "pcov.tgz",
         "license": {
             "type": "file",
             "path": "LICENSE"
@@ -1141,9 +1172,8 @@
         }
     },
     "xdebug": {
-        "type": "url",
-        "url": "https://pecl.php.net/get/xdebug",
-        "filename": "xdebug.tgz",
+        "type": "pie",
+        "repo": "xdebug/xdebug",
         "license": {
             "type": "file",
             "path": "LICENSE"

@@ -358,6 +358,18 @@
             "liblz4"
         ]
     },
+    "maxminddb": {
+        "support": {
+            "BSD": "wip",
+            "Windows": "wip"
+        },
+        "type": "external",
+        "source": "ext-maxminddb",
+        "arg-type": "with",
+        "lib-depends": [
+            "libmaxminddb"
+        ]
+    },
     "mbregex": {
         "type": "builtin",
         "arg-type": "custom",
@@ -554,6 +566,13 @@
         },
         "type": "builtin",
         "unix-only": true
+    },
+    "pcov": {
+        "type": "external",
+        "source": "pcov",
+        "target": [
+            "shared"
+        ]
     },
     "pdo": {
         "type": "builtin"
